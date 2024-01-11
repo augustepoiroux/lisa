@@ -429,6 +429,35 @@ trait WithTheorems {
    */
   def Axiom(using fullName: sourcecode.FullName)(axiom: F.Formula): AXIOM = {
     val ax: Option[theory.Axiom] = theory.addAxiom(fullName.value, axiom.underlying)
+
+    if (!ax.isEmpty) {
+      /// Export the axiom information in a json file
+      val jsonFilename = "data_extract/Axioms.json"
+      val jsonFile = new java.io.File(jsonFilename)
+
+      /// Check folder / file exists
+      if (!jsonFile.getParentFile.exists()) {
+        jsonFile.getParentFile.mkdirs()
+      }
+      if (!jsonFile.exists()) {
+        jsonFile.createNewFile()
+        // add {} to the file
+        val pw = new java.io.PrintWriter(jsonFile)
+        pw.write("{}")
+        pw.close()
+      }
+
+      /// Update json file content
+      val jsonContent = ujson.read(jsonFile)
+      jsonContent(name) = ujson.Obj(
+        "kind" -> "Axiom",
+        "statement" -> lisa.utils.FOLPrinter.prettyFormula(axiom.underlying)
+      )
+      val jsonWriter = new java.io.PrintWriter(jsonFile)
+      ujson.writeTo(jsonContent, jsonWriter, indent = 4)
+      jsonWriter.close()
+    }
+
     ax match {
       case None => throw new InvalidAxiomException("Not all symbols belong to the theory", fullName.value, axiom, library)
       case Some(value) => AXIOM(value, axiom, fullName.value)
@@ -680,15 +709,22 @@ trait WithTheorems {
         "kind" -> kind2,
         "doc" -> doc,
         "statement" -> thm.prettyGoal,
-        "imports" -> thm.proof.getImports.map(imp => imp._1.repr.strip()),
-        // "assumptions" -> thm.proof.getAssumptions.map(a => lisa.utils.FOLPrinter.prettyFormula(a.underlying)),
-        // "global_proofsteps" -> thm.proof.getSteps.map(step => lisa.utils.FOLPrinter.prettySequent(step.bot.underlying)),
+        "imports" -> thm.proof.getImports.map(imp => extractInnerJustificationData(imp._1.innerJustification)),
+        // "assumptions" -> thm.proof.getAssumptions.map(a => lisa.utils.FOLPrinter.prettyFormula(a.underlying)), // assumptions correspond to assumptions made during the proof
+        // "global_proofsteps" -> thm.proof.getSteps.map(step => lisa.utils.FOLPrinter.prettySequent(step.bot.underlying)), // does not extract subproof steps
         "proofsteps" -> lisa.utils.ProofPrinter.prettyProof(thm.proof, 2).stripIndent().split("\n").toList,
         "code" -> code
       )
       val jsonWriter = new java.io.PrintWriter(jsonFile)
       ujson.writeTo(jsonContent, jsonWriter, indent = 4)
       jsonWriter.close()
+    }
+
+    def extractInnerJustificationData(j: theory.Justification): Map[String, String] = j match {
+      case thm: theory.Theorem => Map("name" -> thm.name, "kind" -> "Theorem", "statement" -> lisa.utils.FOLPrinter.prettySequent(thm.proposition))
+      case ax: theory.Axiom => Map("name" -> ax.name, "kind" -> "Axiom", "statement" -> lisa.utils.FOLPrinter.prettyFormula(ax.ax))
+      case fd: theory.FunctionDefinition => Map("name" -> fd.label.toString, "kind" -> "FunctionDefinition", "statement" -> lisa.utils.FOLPrinter.prettyFormula(fd.expression.body))
+      case pd: theory.PredicateDefinition => Map("name" -> pd.label.toString, "kind" -> "PredicateDefinition", "statement" -> lisa.utils.FOLPrinter.prettyFormula(pd.expression.body))
     }
   }
 

@@ -202,14 +202,78 @@ trait ProofsHelpers {
     // inline infix def -->(using om: OutputManager, name: sourcecode.FullName, line: sourcecode.Line, file: sourcecode.File)(f: Formula) = predicateDefinition(lambda(args, f, args.length))
 
     inline infix def -->(using om: OutputManager, name: sourcecode.FullName, line: sourcecode.Line, file: sourcecode.File)(t: The): ConstantTermLabelOfArity[N] =
-      FunctionDefinition[N](name.value, line.value, file.value)(args, t.out, t.f, t.just).label
+      val definition = FunctionDefinition[N](name.value, line.value, file.value)(args, t.out, t.f, t.just)
+      exportJson(definition, "FunctionDefinition")
+      definition.label
 
     inline infix def -->(using om: OutputManager, name: sourcecode.FullName, line: sourcecode.Line, file: sourcecode.File)(term: Term): ConstantTermLabelOfArity[N] =
-      SimpleFunctionDefinition[N](name.value, line.value, file.value)(lambda(args, term).asInstanceOf).label
+      val definition = SimpleFunctionDefinition[N](name.value, line.value, file.value)(lambda(args, term).asInstanceOf)
+      exportJson(definition, "FunctionDefinition")
+      definition.label
 
     inline infix def -->(using om: OutputManager, name: sourcecode.FullName, line: sourcecode.Line, file: sourcecode.File)(formula: Formula): ConstantAtomicLabelOfArity[N] =
-      PredicateDefinition[N](name.value, line.value, file.value)(lambda(args, formula).asInstanceOf).label
+      val definition = PredicateDefinition[N](name.value, line.value, file.value)(lambda(args, formula).asInstanceOf)
+      exportJson(definition, "PredicateDefinition")
+      definition.label
 
+    /**
+     * Export the definition information in a json file
+     */
+    def exportJson(using om: OutputManager, name: sourcecode.Name, line: sourcecode.Line, file: sourcecode.File)(definition: DEFINITION, kind: String): Unit = {
+      /// Check that "lisa/src/main/scala/" is in the file path
+      if (!file.value.contains("lisa/src/main/scala/")) {
+        throw new Exception("The file path must contain 'lisa/src/main/scala/'")
+      }
+      val fileSubdir = file.value.split("lisa/src/main/scala/").last
+      val jsonFilename = "data_extract/" + fileSubdir.split('.').head + ".json"
+      val jsonFile = new java.io.File(jsonFilename)
+
+      /// Check folder / file exists
+      if (!jsonFile.getParentFile.exists()) {
+        jsonFile.getParentFile.mkdirs()
+      }
+      if (!jsonFile.exists()) {
+        jsonFile.createNewFile()
+        // add {} to the file
+        val pw = new java.io.PrintWriter(jsonFile)
+        pw.write("{}")
+        pw.close()
+      }
+
+      /// Extract the definition documentation if it exists from the source file (handcrafted extraction)
+      var doc = ""
+      val sourceFile = scala.io.Source.fromFile(file.value)
+      val lines =
+        try sourceFile.getLines.toList
+        finally sourceFile.close()
+
+      // look for the first previous line containing "*/" and check that there are only whitespaces between this line and the theorem declaration
+      var lastLine = line.value - 2
+      while (lastLine >= 0 && !lines(lastLine).contains("*/") && lines(lastLine).trim().isEmpty)
+        lastLine -= 1
+      if (lastLine >= 0 && lines(lastLine).contains("*/")) {
+        // look for the first line containing "/**" before the theorem name and extract everything between "/**" and "*/"
+        var firstLine = lastLine
+        while (firstLine >= 0 && !lines(firstLine).contains("/**"))
+          firstLine -= 1
+        if (firstLine >= 0 && lines(firstLine).contains("/**"))
+          doc = lines.slice(firstLine, lastLine + 1).mkString("\n").stripIndent()
+      }
+
+      /// Update json file content
+      val jsonContent = ujson.read(jsonFile)
+      val defId = s"${name.value}"
+      jsonContent(defId) = ujson.Obj(
+        "line" -> line.value,
+        "file" -> s"lisa/src/main/scala/$fileSubdir",
+        "kind" -> kind,
+        "doc" -> doc,
+        "statement" -> lisa.utils.FOLPrinter.prettySequent(definition.statement.underlying)
+      )
+      val jsonWriter = new java.io.PrintWriter(jsonFile)
+      ujson.writeTo(jsonContent, jsonWriter, indent = 4)
+      jsonWriter.close()
+    }
   }
 
   def DEF(): definitionWithVars[0] = new definitionWithVars[0](Nil)
