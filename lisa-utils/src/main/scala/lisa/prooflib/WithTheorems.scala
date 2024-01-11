@@ -447,11 +447,19 @@ trait WithTheorems {
         pw.close()
       }
 
+      /// Extract definitions used in the definition statement
+      def extractFormulaDefs(formula: F.Formula): List[String] = {
+        formula.underlying.constantTermLabels.map(l => l.id.name).toList ++
+          formula.underlying.constantPredicateLabels.map(l => l.id.name).toList
+      }
+      val defs = (axiom.left.flatMap(f => extractFormulaDefs(f)) ++ axiom.right.flatMap(f => extractFormulaDefs(f))).toList
+
       /// Update json file content
       val jsonContent = ujson.read(jsonFile)
       jsonContent(name) = ujson.Obj(
         "kind" -> "Axiom",
-        "statement" -> lisa.utils.FOLPrinter.prettyFormula(axiom.underlying)
+        "statement" -> lisa.utils.FOLPrinter.prettyFormula(axiom.underlying),
+        "definitions" -> defs
       )
       val jsonWriter = new java.io.PrintWriter(jsonFile)
       ujson.writeTo(jsonContent, jsonWriter, indent = 4)
@@ -666,7 +674,7 @@ trait WithTheorems {
       }
 
       /// Extract the theorem documentation if it exists from the source file (handcrafted extraction)
-      var doc = ""
+      var docstring = ""
       val sourceFile = scala.io.Source.fromFile(file.value)
       val lines =
         try sourceFile.getLines.toList
@@ -682,23 +690,35 @@ trait WithTheorems {
         while (firstLine >= 0 && !lines(firstLine).contains("/**"))
           firstLine -= 1
         if (firstLine >= 0 && lines(firstLine).contains("/**"))
-          doc = lines.slice(firstLine, lastLine + 1).mkString("\n").stripIndent()
+          docstring = lines.slice(firstLine, lastLine + 1).mkString("\n").stripIndent()
       }
 
       /// Extract proof code
       // in order to achieve that, we start from the line of theorem declaration and look until we reach } (by counting properly)
       var code = ""
+      var thmWithoutProof = ""
       var nbOpenBrackets = 0
       var firstOpenBracketEncountered = false
       var i = line.value - 1
       while (i < lines.length && (nbOpenBrackets > 0 || !firstOpenBracketEncountered)) {
         nbOpenBrackets += lines(i).count(_ == '{')
-        firstOpenBracketEncountered ||= nbOpenBrackets > 0
+        if (!firstOpenBracketEncountered && nbOpenBrackets > 0) {
+          thmWithoutProof = code + lines(i).split('{').head
+          thmWithoutProof = thmWithoutProof.stripIndent()
+          firstOpenBracketEncountered = true
+        }
         nbOpenBrackets -= lines(i).count(_ == '}')
-        code += lines(i) + (if nbOpenBrackets > 0 then "\n" else "")
+        code += lines(i) + (if (nbOpenBrackets > 0 || !firstOpenBracketEncountered) then "\n" else "")
         i += 1
       }
       code = code.stripIndent()
+
+      /// Extract definitions used in the theorem statement
+      def extractFormulaDefs(formula: F.Formula): List[String] = {
+        formula.underlying.constantTermLabels.map(l => l.id.name).toList ++
+          formula.underlying.constantPredicateLabels.map(l => l.id.name).toList
+      }
+      val defs = (thm.goal.left.flatMap(f => extractFormulaDefs(f)) ++ thm.goal.right.flatMap(f => extractFormulaDefs(f))).toList
 
       /// Update json file content
       val jsonContent = ujson.read(jsonFile)
@@ -707,8 +727,10 @@ trait WithTheorems {
         "line" -> line.value,
         "file" -> s"lisa/src/main/scala/$fileSubdir",
         "kind" -> kind2,
-        "doc" -> doc,
+        "docstring" -> docstring,
         "statement" -> thm.prettyGoal,
+        "declaration" -> thmWithoutProof,
+        "definitions" -> defs,
         "imports" -> thm.proof.getImports.map(imp => extractInnerJustificationData(imp._1.innerJustification)),
         // "assumptions" -> thm.proof.getAssumptions.map(a => lisa.utils.FOLPrinter.prettyFormula(a.underlying)), // assumptions correspond to assumptions made during the proof
         // "global_proofsteps" -> thm.proof.getSteps.map(step => lisa.utils.FOLPrinter.prettySequent(step.bot.underlying)), // does not extract subproof steps

@@ -241,24 +241,49 @@ trait ProofsHelpers {
       }
 
       /// Extract the definition documentation if it exists from the source file (handcrafted extraction)
-      var doc = ""
+      var docstring = ""
       val sourceFile = scala.io.Source.fromFile(file.value)
       val lines =
         try sourceFile.getLines.toList
         finally sourceFile.close()
 
+      // Get first line of the declaration
+      var firstLine = line.value - 1
+      while (firstLine >= 0 && !lines(firstLine).contains("def ") && !lines(firstLine).contains("val "))
+        firstLine -= 1
+        if (lines(firstLine).contains("*/"))
+          throw new Exception(s"Error during extraction of the documentation of the definition $name (line ${line.value}) in file $fileSubdir)")
+
       // look for the first previous line containing "*/" and check that there are only whitespaces between this line and the theorem declaration
-      var lastLine = line.value - 2
+      var lastLine = firstLine - 1
       while (lastLine >= 0 && !lines(lastLine).contains("*/") && lines(lastLine).trim().isEmpty)
         lastLine -= 1
       if (lastLine >= 0 && lines(lastLine).contains("*/")) {
         // look for the first line containing "/**" before the theorem name and extract everything between "/**" and "*/"
-        var firstLine = lastLine
-        while (firstLine >= 0 && !lines(firstLine).contains("/**"))
-          firstLine -= 1
-        if (firstLine >= 0 && lines(firstLine).contains("/**"))
-          doc = lines.slice(firstLine, lastLine + 1).mkString("\n").stripIndent()
+        var firstLineDocstring = lastLine
+        while (firstLineDocstring >= 0 && !lines(firstLineDocstring).contains("/**"))
+          firstLineDocstring -= 1
+        if (firstLineDocstring >= 0 && lines(firstLineDocstring).contains("/**"))
+          docstring = lines.slice(firstLineDocstring, lastLine + 1).mkString("\n").stripIndent()
       }
+
+      /// Extract definition statement from the source file (handcrafted extraction)
+      // in order to achieve that, we start from the line of definition declaration and look until the first "/**", "val" or "def"
+      var declaration = lines(firstLine)
+      var i = firstLine + 1
+      while (i < lines.length && !lines(i).contains("/**") && !lines(i).contains("val ") && !lines(i).contains("def ")) {
+        if (!lines(i).trim().isEmpty)
+          declaration += "\n" + lines(i)
+        i += 1
+      }
+      declaration = declaration.stripIndent()
+
+      /// Extract definitions used in the definition statement
+      def extractFormulaDefs(formula: F.Formula): List[String] = {
+        (formula.underlying.constantTermLabels.map(l => l.id.name).toList ++
+          formula.underlying.constantPredicateLabels.map(l => l.id.name).toList).filter(_ != name.value)
+      }
+      val defs = (definition.statement.left.flatMap(f => extractFormulaDefs(f)) ++ definition.statement.right.flatMap(f => extractFormulaDefs(f))).toList
 
       /// Update json file content
       val jsonContent = ujson.read(jsonFile)
@@ -267,8 +292,10 @@ trait ProofsHelpers {
         "line" -> line.value,
         "file" -> s"lisa/src/main/scala/$fileSubdir",
         "kind" -> kind,
-        "doc" -> doc,
-        "statement" -> lisa.utils.FOLPrinter.prettySequent(definition.statement.underlying)
+        "docstring" -> docstring,
+        "statement" -> lisa.utils.FOLPrinter.prettySequent(definition.statement.underlying),
+        "declaration" -> declaration,
+        "definitions" -> defs
       )
       val jsonWriter = new java.io.PrintWriter(jsonFile)
       ujson.writeTo(jsonContent, jsonWriter, indent = 4)
