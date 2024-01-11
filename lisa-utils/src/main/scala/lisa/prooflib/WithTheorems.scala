@@ -603,13 +603,93 @@ trait WithTheorems {
 
   trait TheoremKind {
     val kind2: String
-
     def apply(using om: OutputManager, name: sourcecode.FullName, line: sourcecode.Line, file: sourcecode.File)(statement: F.Sequent)(computeProof: Proof ?=> Unit): THM = {
-      val thm = THM(statement, name.value, line.value, file.value, this)(computeProof)
-      if this == Theorem then show(thm)
+      val thm = THM(statement, name.value, line.value, file.value, this)(computeProof) {}
+      if (this == Theorem) {
+        show(thm)
+      }
+      exportJson(thm)
       thm
     }
 
+    /**
+     * Export the theorem information in a json file
+     */
+    def exportJson(thm: THM)(using line: sourcecode.Line, file: sourcecode.File): Unit = {
+      /// Check that "lisa/src/main/scala/" is in the file path
+      if (!file.value.contains("lisa/src/main/scala/")) {
+        throw new Exception("The file path must contain 'lisa/src/main/scala/'")
+      }
+      val fileSubdir = file.value.split("lisa/src/main/scala/").last
+      val jsonFilename = "data_extract/" + fileSubdir.split('.').head + ".json"
+      val jsonFile = new java.io.File(jsonFilename)
+
+      /// Check folder / file exists
+      if (!jsonFile.getParentFile.exists()) {
+        jsonFile.getParentFile.mkdirs()
+      }
+      if (!jsonFile.exists()) {
+        jsonFile.createNewFile()
+        // add {} to the file
+        val pw = new java.io.PrintWriter(jsonFile)
+        pw.write("{}")
+        pw.close()
+      }
+
+      /// Extract the theorem documentation if it exists from the source file (handcrafted extraction)
+      var doc = ""
+      val sourceFile = scala.io.Source.fromFile(file.value)
+      val lines =
+        try sourceFile.getLines.toList
+        finally sourceFile.close()
+
+      // look for the first previous line containing "*/" and check that there are only whitespaces between this line and the theorem declaration
+      var lastLine = line.value - 2
+      while (lastLine >= 0 && !lines(lastLine).contains("*/") && lines(lastLine).trim().isEmpty)
+        lastLine -= 1
+      if (lastLine >= 0 && lines(lastLine).contains("*/")) {
+        // look for the first line containing "/**" before the theorem name and extract everything between "/**" and "*/"
+        var firstLine = lastLine
+        while (firstLine >= 0 && !lines(firstLine).contains("/**"))
+          firstLine -= 1
+        if (firstLine >= 0 && lines(firstLine).contains("/**"))
+          doc = lines.slice(firstLine, lastLine + 1).mkString("\n").stripIndent()
+      }
+
+      /// Extract proof code
+      // in order to achieve that, we start from the line of theorem declaration and look until we reach } (by counting properly)
+      var code = ""
+      var nbOpenBrackets = 0
+      var firstOpenBracketEncountered = false
+      var i = line.value - 1
+      while (i < lines.length && (nbOpenBrackets > 0 || !firstOpenBracketEncountered)) {
+        nbOpenBrackets += lines(i).count(_ == '{')
+        firstOpenBracketEncountered ||= nbOpenBrackets > 0
+        nbOpenBrackets -= lines(i).count(_ == '}')
+        code += lines(i) + (if nbOpenBrackets > 0 then "\n" else "")
+        i += 1
+      }
+      code = code.stripIndent()
+
+      /// Update json file content
+      val jsonContent = ujson.read(jsonFile)
+      val thmId = s"${thm.name}"
+      jsonContent(thmId) = ujson.Obj(
+        "line" -> line.value,
+        "file" -> s"lisa/src/main/scala/$fileSubdir",
+        "kind" -> kind2,
+        "doc" -> doc,
+        "statement" -> thm.prettyGoal,
+        "imports" -> thm.proof.getImports.map(imp => imp._1.repr.strip()),
+        // "assumptions" -> thm.proof.getAssumptions.map(a => lisa.utils.FOLPrinter.prettyFormula(a.underlying)),
+        // "global_proofsteps" -> thm.proof.getSteps.map(step => lisa.utils.FOLPrinter.prettySequent(step.bot.underlying)),
+        "proofsteps" -> lisa.utils.ProofPrinter.prettyProof(thm.proof, 2).stripIndent().split("\n").toList,
+        "code" -> code
+      )
+      val jsonWriter = new java.io.PrintWriter(jsonFile)
+      ujson.writeTo(jsonContent, jsonWriter, indent = 4)
+      jsonWriter.close()
+    }
   }
 
   /**
