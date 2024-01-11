@@ -434,7 +434,8 @@ trait WithTheorems {
 
     if (!ax.isEmpty) {
       /// Export the axiom information in a json file
-      val jsonFilename = "data_extract/Axioms.json"
+      val fileSubdir = fullName.value.split("\\.").dropRight(1).mkString("/")
+      val jsonFilename = "data_extract/" + fileSubdir + ".json"
       val jsonFile = new java.io.File(jsonFilename)
 
       /// Check folder / file exists
@@ -458,8 +459,10 @@ trait WithTheorems {
 
       /// Update json file content
       val jsonContent = ujson.read(jsonFile)
-      jsonContent(fullName.value) = ujson.Obj(
+      val shortName = fullName.value.split("\\.").last
+      jsonContent(shortName) = ujson.Obj(
         "kind" -> "Axiom",
+        "file_path" -> fileSubdir,
         "statement" -> lisa.utils.FOLPrinter.prettyFormula(axiom.underlying),
         "definitions" -> defs
       )
@@ -722,7 +725,7 @@ trait WithTheorems {
       val thmId = s"${thm.name}"
       jsonContent(thmId) = ujson.Obj(
         "line" -> line.value,
-        "file" -> s"lisa/src/main/scala/$fileSubdir",
+        "file_path" -> fileSubdir,
         "kind" -> kind2,
         "docstring" -> docstring,
         "statement" -> thm.prettyGoal,

@@ -287,7 +287,7 @@ trait ProofsHelpers {
       val defId = shortName
       jsonContent(defId) = ujson.Obj(
         "line" -> line.value,
-        "file" -> s"lisa/src/main/scala/$fileSubdir",
+        "file_path" -> fileSubdir,
         "kind" -> kind,
         "docstring" -> docstring,
         "statement" -> lisa.utils.FOLPrinter.prettySequent(definition.statement.underlying),
