@@ -43,7 +43,7 @@ val commonSettings3 = commonSettings ++ Seq(
   libraryDependencies += "com.lihaoyi" %% "sourcecode" % "0.3.0",
   // libraryDependencies += "org.scala-lang.modules" %% "scala-parser-combinators" % "2.1.1",
   libraryDependencies += ("io.github.uuverifiers" %% "princess" % "2023-06-19").cross(CrossVersion.for3Use2_13),
-  libraryDependencies += "com.lihaoyi" %% "upickle" % "3.1.0",
+  libraryDependencies += "com.lihaoyi" %% "ujson" % "1.4.0",
   Test / parallelExecution := false
 )
 

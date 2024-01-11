@@ -219,13 +219,10 @@ trait ProofsHelpers {
     /**
      * Export the definition information in a json file
      */
-    def exportJson(using om: OutputManager, name: sourcecode.Name, line: sourcecode.Line, file: sourcecode.File)(definition: DEFINITION, kind: String): Unit = {
-      /// Check that "lisa/src/main/scala/" is in the file path
-      if (!file.value.contains("lisa/src/main/scala/")) {
-        throw new Exception("The file path must contain 'lisa/src/main/scala/'")
-      }
-      val fileSubdir = file.value.split("lisa/src/main/scala/").last
-      val jsonFilename = "data_extract/" + fileSubdir.split('.').head + ".json"
+    def exportJson(using om: OutputManager, fullName: sourcecode.FullName, line: sourcecode.Line, file: sourcecode.File)(definition: DEFINITION, kind: String): Unit = {
+      val shortName = fullName.value.split("\\.").last
+      val fileSubdir = fullName.value.split("\\.").dropRight(1).mkString("/")
+      val jsonFilename = "data_extract/" + fileSubdir + ".json"
       val jsonFile = new java.io.File(jsonFilename)
 
       /// Check folder / file exists
@@ -252,7 +249,7 @@ trait ProofsHelpers {
       while (firstLine >= 0 && !lines(firstLine).contains("def ") && !lines(firstLine).contains("val "))
         firstLine -= 1
         if (lines(firstLine).contains("*/"))
-          throw new Exception(s"Error during extraction of the documentation of the definition $name (line ${line.value}) in file $fileSubdir)")
+          throw new Exception(s"Error during extraction of the documentation of the definition $fullName (line ${line.value}) in file $fileSubdir)")
 
       // look for the first previous line containing "*/" and check that there are only whitespaces between this line and the theorem declaration
       var lastLine = firstLine - 1
@@ -281,13 +278,13 @@ trait ProofsHelpers {
       /// Extract definitions used in the definition statement
       def extractFormulaDefs(formula: F.Formula): List[String] = {
         (formula.underlying.constantTermLabels.map(l => l.id.name).toList ++
-          formula.underlying.constantPredicateLabels.map(l => l.id.name).toList).filter(_ != name.value)
+          formula.underlying.constantPredicateLabels.map(l => l.id.name).toList).filter(_ != shortName)
       }
       val defs = (definition.statement.left.flatMap(f => extractFormulaDefs(f)) ++ definition.statement.right.flatMap(f => extractFormulaDefs(f))).toList
 
       /// Update json file content
       val jsonContent = ujson.read(jsonFile)
-      val defId = s"${name.value}"
+      val defId = shortName
       jsonContent(defId) = ujson.Obj(
         "line" -> line.value,
         "file" -> s"lisa/src/main/scala/$fileSubdir",

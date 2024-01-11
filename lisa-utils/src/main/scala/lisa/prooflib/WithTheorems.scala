@@ -16,6 +16,8 @@ import scala.collection.mutable.Buffer as mBuf
 import scala.collection.mutable.Map as mMap
 import scala.collection.mutable.Stack as stack
 
+import ujson.*
+
 trait WithTheorems {
   library: Library =>
 
@@ -456,7 +458,7 @@ trait WithTheorems {
 
       /// Update json file content
       val jsonContent = ujson.read(jsonFile)
-      jsonContent(name) = ujson.Obj(
+      jsonContent(fullName.value) = ujson.Obj(
         "kind" -> "Axiom",
         "statement" -> lisa.utils.FOLPrinter.prettyFormula(axiom.underlying),
         "definitions" -> defs
@@ -641,10 +643,8 @@ trait WithTheorems {
   trait TheoremKind {
     val kind2: String
     def apply(using om: OutputManager, name: sourcecode.FullName, line: sourcecode.Line, file: sourcecode.File)(statement: F.Sequent)(computeProof: Proof ?=> Unit): THM = {
-      val thm = THM(statement, name.value, line.value, file.value, this)(computeProof) {}
-      if (this == Theorem) {
-        show(thm)
-      }
+      val thm = THM(statement, name.value, line.value, file.value, this)(computeProof)
+      if (this == Theorem) show(thm)
       exportJson(thm)
       thm
     }
@@ -653,21 +653,17 @@ trait WithTheorems {
      * Export the theorem information in a json file
      */
     def exportJson(thm: THM)(using line: sourcecode.Line, file: sourcecode.File): Unit = {
-      /// Check that "lisa/src/main/scala/" is in the file path
-      if (!file.value.contains("lisa/src/main/scala/")) {
-        throw new Exception("The file path must contain 'lisa/src/main/scala/'")
-      }
-      val fileSubdir = file.value.split("lisa/src/main/scala/").last
-      val jsonFilename = "data_extract/" + fileSubdir.split('.').head + ".json"
+      val fileSubdir = thm.fullName.split("\\.").dropRight(1).mkString("/")
+      val jsonFilename = "data_extract/" + fileSubdir + ".json"
       val jsonFile = new java.io.File(jsonFilename)
 
       /// Check folder / file exists
-      if (!jsonFile.getParentFile.exists()) {
+      if (!jsonFile.getParentFile.exists())
         jsonFile.getParentFile.mkdirs()
-      }
+
       if (!jsonFile.exists()) {
         jsonFile.createNewFile()
-        // add {} to the file
+        // instantiate an empty json file
         val pw = new java.io.PrintWriter(jsonFile)
         pw.write("{}")
         pw.close()
@@ -718,9 +714,10 @@ trait WithTheorems {
         formula.underlying.constantTermLabels.map(l => l.id.name).toList ++
           formula.underlying.constantPredicateLabels.map(l => l.id.name).toList
       }
-      val defs = (thm.goal.left.flatMap(f => extractFormulaDefs(f)) ++ thm.goal.right.flatMap(f => extractFormulaDefs(f))).toList
+      val defs = (thm.statement.left.flatMap(f => extractFormulaDefs(f)) ++ thm.statement.right.flatMap(f => extractFormulaDefs(f))).toList
 
       /// Update json file content
+      val proof = thm.highProof.get
       val jsonContent = ujson.read(jsonFile)
       val thmId = s"${thm.name}"
       jsonContent(thmId) = ujson.Obj(
@@ -731,10 +728,10 @@ trait WithTheorems {
         "statement" -> thm.prettyGoal,
         "declaration" -> thmWithoutProof,
         "definitions" -> defs,
-        "imports" -> thm.proof.getImports.map(imp => extractInnerJustificationData(imp._1.innerJustification)),
+        "imports" -> proof.getImports.map(imp => extractInnerJustificationData(imp._1.innerJustification)),
         // "assumptions" -> thm.proof.getAssumptions.map(a => lisa.utils.FOLPrinter.prettyFormula(a.underlying)), // assumptions correspond to assumptions made during the proof
         // "global_proofsteps" -> thm.proof.getSteps.map(step => lisa.utils.FOLPrinter.prettySequent(step.bot.underlying)), // does not extract subproof steps
-        "proofsteps" -> lisa.utils.ProofPrinter.prettyProof(thm.proof, 2).stripIndent().split("\n").toList,
+        "proofsteps" -> lisa.utils.ProofPrinter.prettyProof(proof, 2).stripIndent().split("\n").toList,
         "code" -> code
       )
       val jsonWriter = new java.io.PrintWriter(jsonFile)
