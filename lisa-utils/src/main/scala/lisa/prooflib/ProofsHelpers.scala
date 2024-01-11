@@ -20,6 +20,48 @@ trait ProofsHelpers {
 
   given Library = library
 
+  def extractProofStates(_proof: library.Proof, line: sourcecode.Line, file: sourcecode.File) = {
+    // // let's print line and file
+    // println(s"Line: ${line.value}\tFile: ${file.value}")
+    // // and let's print the proof
+    // println(s"Proof of " + _proof.owningTheorem.prettyGoal + ": ")
+    // val prettyProofstep = ProofPrinter.prettySimpleProof(_proof, 0).split("\n").last
+    // println(prettyProofstep)
+
+    // /// Export the proof annotations to a file copy
+    // // check that it ends with .scala
+    // if (!file.value.endsWith(".scala")) {
+    //   throw new Exception("The file name must end with .scala")
+    // }
+    // val annotatedFileName = file.value.dropRight(6) + "_annotated.sc"
+    // val annotatedFile = new java.io.File(annotatedFileName)
+
+    // // Get source file content
+    // val source = scala.io.Source.fromFile(file.value)
+    // val sourceLines = source.getLines.toArray
+    // source.close()
+
+    // val annotatedLine = sourceLines(line.value - 1) + " // " + prettyProofstep
+    // println(annotatedLine)
+    // println("-" * 120)
+
+    // // open a copy of file, create one if it doesn't exist
+    // if (!annotatedFile.exists()) {
+    //   val fileWriter = new java.io.FileWriter(annotatedFile)
+    //   fileWriter.write(sourceLines.mkString("\n"))
+    //   fileWriter.close()
+    // }
+
+    // // open the file again to write the annotation at the right line
+    // val prevAnnotation = scala.io.Source.fromFile(annotatedFile)
+    // val lines = prevAnnotation.getLines.toArray
+    // prevAnnotation.close()
+    // val fileWriter = new java.io.FileWriter(annotatedFile)
+    // lines(line.value - 1) = annotatedLine
+    // fileWriter.write(lines.mkString("\n"))
+    // fileWriter.close()
+  }
+
   class HaveSequent private[ProofsHelpers] (bot: Sequent) {
     val x: lisa.fol.FOL.Sequent = bot
     inline infix def by(using proof: library.Proof, line: sourcecode.Line, file: sourcecode.File): By { val _proof: proof.type } = By(proof, line, file).asInstanceOf
@@ -28,10 +70,14 @@ trait ProofsHelpers {
 
       private val bot = HaveSequent.this.bot ++ (F.iterable_to_set(_proof.getAssumptions) |- ())
       inline infix def apply(tactic: Sequent => _proof.ProofTacticJudgement): _proof.ProofStep & _proof.Fact = {
-        tactic(bot).validate(line, file)
+        val res = tactic(bot).validate(line, file)
+        extractProofStates(_proof, line, file)
+        res
       }
       inline infix def apply(tactic: ProofSequentTactic): _proof.ProofStep = {
-        tactic(using library, _proof)(bot).validate(line, file)
+        val res = tactic(using library, _proof)(bot).validate(line, file)
+        extractProofStates(_proof, line, file)
+        res
       }
     }
 
@@ -52,13 +98,16 @@ trait ProofsHelpers {
     class By(val _proof: library.Proof, line: sourcecode.Line, file: sourcecode.File) {
       private val bot = AndThenSequent.this.bot ++ (_proof.getAssumptions |- ())
       inline infix def apply(tactic: _proof.Fact => Sequent => _proof.ProofTacticJudgement): _proof.ProofStep = {
-        tactic(_proof.mostRecentStep)(bot).validate(line, file)
+        val res = tactic(_proof.mostRecentStep)(bot).validate(line, file)
+        extractProofStates(_proof, line, file)
+        res
       }
 
       inline infix def apply(tactic: ProofFactSequentTactic): _proof.ProofStep = {
-        tactic(using library, _proof)(_proof.mostRecentStep)(bot).validate(line, file)
+        val res = tactic(using library, _proof)(_proof.mostRecentStep)(bot).validate(line, file)
+        extractProofStates(_proof, line, file)
+        res
       }
-
     }
   }
 
